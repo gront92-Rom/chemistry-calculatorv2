@@ -1,0 +1,235 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* 
+Design Philosophy: Retro-Futurism with 1980s Scientific Computing Aesthetic
+- CRT monitor-inspired displays with scan-line effects and phosphor glow
+- Grid-based layouts reminiscent of early computer interfaces and oscilloscopes
+- High-tech nostalgia combining vintage computing with modern precision
+- Monochromatic base with vibrant neon accents
+*/
+
+@theme inline {
+  --radius-sm: 0px;
+  --radius-md: 2px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  
+  /* Custom retro-futuristic colors */
+  --color-neon-cyan: oklch(0.85 0.15 195);
+  --color-neon-orange: oklch(0.7 0.18 35);
+  --color-terminal-green: oklch(0.85 0.2 145);
+  --color-crt-dark: oklch(0.15 0.01 240);
+}
+
+:root {
+  /* Retro-futuristic color scheme */
+  --primary: var(--color-neon-cyan);
+  --primary-foreground: var(--color-crt-dark);
+  --sidebar-primary: var(--color-neon-cyan);
+  --sidebar-primary-foreground: var(--color-crt-dark);
+  --chart-1: var(--color-neon-cyan);
+  --chart-2: var(--color-neon-orange);
+  --chart-3: var(--color-terminal-green);
+  --chart-4: oklch(0.75 0.15 280);
+  --chart-5: oklch(0.65 0.12 320);
+  --radius: 4px;
+  
+  /* Dark CRT background theme */
+  --background: oklch(0.10 0.01 240);
+  --foreground: oklch(0.95 0.02 195);
+  --card: oklch(0.15 0.01 240);
+  --card-foreground: oklch(0.95 0.02 195);
+  --popover: oklch(0.12 0.01 240);
+  --popover-foreground: oklch(0.95 0.02 195);
+  --secondary: oklch(0.20 0.02 240);
+  --secondary-foreground: var(--color-neon-cyan);
+  --muted: oklch(0.18 0.01 240);
+  --muted-foreground: oklch(0.55 0.05 195);
+  --accent: var(--color-neon-orange);
+  --accent-foreground: oklch(0.98 0 0);
+  --destructive: oklch(0.65 0.22 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: var(--color-neon-cyan);
+  --input: oklch(0.25 0.02 240);
+  --ring: var(--color-neon-cyan);
+  --sidebar: oklch(0.12 0.01 240);
+  --sidebar-foreground: oklch(0.95 0.02 195);
+  --sidebar-accent: oklch(0.20 0.02 240);
+  --sidebar-accent-foreground: var(--color-neon-cyan);
+  --sidebar-border: var(--color-neon-cyan);
+  --sidebar-ring: var(--color-neon-cyan);
+}
+
+.dark {
+  /* Same as root - this is a dark-first design */
+  --primary: var(--color-neon-cyan);
+  --primary-foreground: var(--color-crt-dark);
+  --sidebar-primary: var(--color-neon-cyan);
+  --sidebar-primary-foreground: var(--color-crt-dark);
+  --background: oklch(0.10 0.01 240);
+  --foreground: oklch(0.95 0.02 195);
+  --card: oklch(0.15 0.01 240);
+  --card-foreground: oklch(0.95 0.02 195);
+  --popover: oklch(0.12 0.01 240);
+  --popover-foreground: oklch(0.95 0.02 195);
+  --secondary: oklch(0.20 0.02 240);
+  --secondary-foreground: var(--color-neon-cyan);
+  --muted: oklch(0.18 0.01 240);
+  --muted-foreground: oklch(0.55 0.05 195);
+  --accent: var(--color-neon-orange);
+  --accent-foreground: oklch(0.98 0 0);
+  --destructive: oklch(0.65 0.22 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: var(--color-neon-cyan);
+  --input: oklch(0.25 0.02 240);
+  --ring: var(--color-neon-cyan);
+  --chart-1: var(--color-neon-cyan);
+  --chart-2: var(--color-neon-orange);
+  --chart-3: var(--color-terminal-green);
+  --chart-4: oklch(0.75 0.15 280);
+  --chart-5: oklch(0.65 0.12 320);
+  --sidebar: oklch(0.12 0.01 240);
+  --sidebar-foreground: oklch(0.95 0.02 195);
+  --sidebar-accent: oklch(0.20 0.02 240);
+  --sidebar-accent-foreground: var(--color-neon-cyan);
+  --sidebar-border: var(--color-neon-cyan);
+  --sidebar-ring: var(--color-neon-cyan);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Roboto Mono', monospace;
+    letter-spacing: 0.05em;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Orbitron', sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [type="button"]:not(:disabled),
+  [type="submit"]:not(:disabled),
+  [type="reset"]:not(:disabled),
+  a[href],
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled) {
+    @apply cursor-pointer;
+  }
+}
+
+@layer components {
+  .container {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  .flex {
+    min-height: 0;
+    min-width: 0;
+  }
+
+  @media (min-width: 640px) {
+    .container {
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container {
+      padding-left: 2rem;
+      padding-right: 2rem;
+      max-width: 1280px;
+    }
+  }
+  
+  /* Retro-futuristic neon glow effect */
+  .neon-glow {
+    text-shadow: 
+      0 0 5px currentColor,
+      0 0 10px currentColor,
+      0 0 20px currentColor;
+  }
+  
+  .neon-border {
+    box-shadow: 
+      0 0 5px currentColor,
+      0 0 10px currentColor,
+      inset 0 0 5px currentColor;
+  }
+  
+  /* CRT scan-line effect */
+  .scanlines {
+    position: relative;
+  }
+  
+  .scanlines::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(0, 255, 255, 0.03) 0px,
+      rgba(0, 255, 255, 0.03) 1px,
+      transparent 1px,
+      transparent 2px
+    );
+    pointer-events: none;
+    z-index: 10;
+  }
+  
+  /* Monospace number display */
+  .mono-display {
+    font-family: 'Share Tech Mono', monospace;
+    letter-spacing: 0.1em;
+  }
+}
