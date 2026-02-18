@@ -1,15 +1,11 @@
 import type { Metadata } from "next";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { ThemeProvider } from "@/contexts/ThemeContext";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "ChemLab Pro - Calculator & Timer for Laboratory",
   description: "Retro-futuristic chemistry calculator and laboratory timer with background notification support",
-  icons: {
-    icon: "/logo.svg",
-  },
 };
 
 export default function RootLayout({
@@ -18,7 +14,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className="dark">
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -28,12 +24,10 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased">
-        <ThemeProvider defaultTheme="dark">
-          <TooltipProvider>
-            <Toaster />
-            {children}
-          </TooltipProvider>
-        </ThemeProvider>
+        <TooltipProvider>
+          <Toaster />
+          {children}
+        </TooltipProvider>
       </body>
     </html>
   );

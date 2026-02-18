@@ -113,7 +113,7 @@ export default function DilutionCalculator() {
     const v2Val = parseFloat(v2);
 
     // Check for valid inputs
-    const missingInputs = [];
+    const missingInputs: string[] = [];
     if (solveFor !== "C1" && (isNaN(c1Val) || c1Val <= 0)) missingInputs.push("C₁");
     if (solveFor !== "V1" && (isNaN(v1Val) || v1Val <= 0)) missingInputs.push("V₁");
     if (solveFor !== "C2" && (isNaN(c2Val) || c2Val <= 0)) missingInputs.push("C₂");
