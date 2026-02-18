@@ -3,7 +3,7 @@
 /*
 Design Philosophy: Retro-Futurism with 1980s Scientific Computing Aesthetic
 Dilution Calculator - C₁×V₁ = C₂×V₂ formula with serial dilution support
-Now supports different units for initial and final concentrations/volumes
+Now supports independent units for each parameter with proper conversion
 */
 
 import { useState } from "react";
@@ -14,23 +14,39 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-type ConcentrationUnit = "mol/L" | "mmol/L" | "mg/mL" | "µg/mL" | "g/L";
+type ConcentrationUnit = "mol/L" | "mmol/L" | "g/L" | "mg/mL" | "µg/mL";
 type VolumeUnit = "L" | "mL" | "µL";
 type SolveFor = "C1" | "V1" | "C2" | "V2";
 
-// Unit conversion factors (to base unit)
-const concentrationToBase: Record<ConcentrationUnit, number> = {
-  "mol/L": 1,
-  "mmol/L": 0.001,
-  "g/L": 1, // g/L is same as mg/mL
+// Concentration conversion factors to common base (g/L for mass, mol/L for molar)
+// Mass concentration units
+const massConcentrationTo_g_per_L: Record<"g/L" | "mg/mL" | "µg/mL", number> = {
+  "g/L": 1,
   "mg/mL": 1, // 1 mg/mL = 1 g/L
-  "µg/mL": 0.001, // 1 µg/mL = 1 mg/L
+  "µg/mL": 0.001, // 1 µg/mL = 0.001 g/L = 1 mg/L
 };
 
-const volumeToBase: Record<VolumeUnit, number> = {
+// Molar concentration units
+const molarConcentrationTo_mol_per_L: Record<"mol/L" | "mmol/L", number> = {
+  "mol/L": 1,
+  "mmol/L": 0.001,
+};
+
+// Volume conversion factors to Liters
+const volumeTo_L: Record<VolumeUnit, number> = {
   "L": 1,
   "mL": 0.001,
   "µL": 0.000001,
+};
+
+// Check if unit is molar
+const isMolarUnit = (unit: ConcentrationUnit): unit is "mol/L" | "mmol/L" => {
+  return unit === "mol/L" || unit === "mmol/L";
+};
+
+// Check if unit is mass concentration
+const isMassUnit = (unit: ConcentrationUnit): unit is "g/L" | "mg/mL" | "µg/mL" => {
+  return unit === "g/L" || unit === "mg/mL" || unit === "µg/mL";
 };
 
 export default function DilutionCalculator() {
@@ -48,6 +64,7 @@ export default function DilutionCalculator() {
   const [v2Unit, setV2Unit] = useState<VolumeUnit>("mL");
   const [result, setResult] = useState<number | null>(null);
   const [resultUnit, setResultUnit] = useState<string>("");
+  const [warning, setWarning] = useState<string>("");
 
   // Serial dilution state
   const [startConc, setStartConc] = useState<string>("100");
@@ -57,24 +74,36 @@ export default function DilutionCalculator() {
   const [serialSeries, setSerialSeries] = useState<{ step: number; concentration: number }[]>([]);
   const [dilutionFactor, setDilutionFactor] = useState<number | null>(null);
 
-  // Convert concentration to base unit (g/L equivalent)
-  const convertConcToBase = (value: number, unit: ConcentrationUnit): number => {
-    return value * concentrationToBase[unit];
+  // Convert concentration to standard form (value in its base unit type)
+  const getConcentrationInBase = (value: number, unit: ConcentrationUnit): { value: number; isMolar: boolean } => {
+    if (isMolarUnit(unit)) {
+      return { value: value * molarConcentrationTo_mol_per_L[unit], isMolar: true };
+    } else {
+      return { value: value * massConcentrationTo_g_per_L[unit], isMolar: false };
+    }
   };
 
-  // Convert from base unit to target unit
-  const convertConcFromBase = (value: number, unit: ConcentrationUnit): number => {
-    return value / concentrationToBase[unit];
+  // Convert from base to target unit
+  const convertConcentration = (value: number, fromUnit: ConcentrationUnit, toUnit: ConcentrationUnit): number => {
+    // Get value in base
+    const base = getConcentrationInBase(value, fromUnit);
+    
+    // Convert to target
+    if (isMolarUnit(toUnit)) {
+      return base.value / molarConcentrationTo_mol_per_L[toUnit];
+    } else {
+      return base.value / massConcentrationTo_g_per_L[toUnit];
+    }
   };
 
-  // Convert volume to base unit (L)
-  const convertVolToBase = (value: number, unit: VolumeUnit): number => {
-    return value * volumeToBase[unit];
+  // Convert volume to Liters
+  const convertVolumeTo_L = (value: number, unit: VolumeUnit): number => {
+    return value * volumeTo_L[unit];
   };
 
-  // Convert from base unit to target unit
-  const convertVolFromBase = (value: number, unit: VolumeUnit): number => {
-    return value / volumeToBase[unit];
+  // Convert volume from Liters to target unit
+  const convertVolumeFrom_L = (value: number, unit: VolumeUnit): number => {
+    return value / volumeTo_L[unit];
   };
 
   const calculateSingleDilution = () => {
@@ -83,15 +112,33 @@ export default function DilutionCalculator() {
     const c2Val = parseFloat(c2);
     const v2Val = parseFloat(v2);
 
-    if (isNaN(c1Val) || isNaN(v1Val) || isNaN(c2Val) || isNaN(v2Val)) {
+    // Check for valid inputs
+    const missingInputs = [];
+    if (solveFor !== "C1" && (isNaN(c1Val) || c1Val <= 0)) missingInputs.push("C₁");
+    if (solveFor !== "V1" && (isNaN(v1Val) || v1Val <= 0)) missingInputs.push("V₁");
+    if (solveFor !== "C2" && (isNaN(c2Val) || c2Val <= 0)) missingInputs.push("C₂");
+    if (solveFor !== "V2" && (isNaN(v2Val) || v2Val <= 0)) missingInputs.push("V₂");
+
+    if (missingInputs.length > 0) {
+      setWarning(`Please enter valid values for: ${missingInputs.join(", ")}`);
       return;
     }
 
-    // Convert all to base units for calculation
-    const c1Base = convertConcToBase(c1Val, c1Unit);
-    const v1Base = convertVolToBase(v1Val, v1Unit);
-    const c2Base = convertConcToBase(c2Val, c2Unit);
-    const v2Base = convertVolToBase(v2Val, v2Unit);
+    // Check for unit compatibility
+    const c1IsMolar = isMolarUnit(c1Unit);
+    const c2IsMolar = isMolarUnit(c2Unit);
+    
+    if (c1IsMolar !== c2IsMolar) {
+      setWarning("⚠️ Warning: Mixing molar (mol/L) and mass concentration units may give incorrect results. Use consistent unit types.");
+    } else {
+      setWarning("");
+    }
+
+    // Get all values in base units
+    const c1Base = getConcentrationInBase(c1Val, c1Unit);
+    const c2Base = getConcentrationInBase(c2Val, c2Unit);
+    const v1_L = convertVolumeTo_L(v1Val, v1Unit);
+    const v2_L = convertVolumeTo_L(v2Val, v2Unit);
 
     let resultValue: number;
     let resultLabel: string;
@@ -100,33 +147,46 @@ export default function DilutionCalculator() {
     switch (solveFor) {
       case "C1":
         // C1 = (C2 × V2) / V1
-        resultValue = (c2Base * v2Base) / v1Base;
+        // C1_base = (C2_base × V2_L) / V1_L
+        resultValue = (c2Base.value * v2_L) / v1_L;
         // Convert to C1's unit
-        resultValue = convertConcFromBase(resultValue, c1Unit);
+        if (c1IsMolar) {
+          resultValue = resultValue / molarConcentrationTo_mol_per_L[c1Unit as "mol/L" | "mmol/L"];
+        } else {
+          resultValue = resultValue / massConcentrationTo_g_per_L[c1Unit as "g/L" | "mg/mL" | "µg/mL"];
+        }
         displayUnit = c1Unit;
         resultLabel = `C₁ = ${resultValue.toFixed(4)} ${displayUnit}`;
         break;
+        
       case "V1":
         // V1 = (C2 × V2) / C1
-        resultValue = (c2Base * v2Base) / c1Base;
+        // V1_L = (C2_base × V2_L) / C1_base
+        resultValue = (c2Base.value * v2_L) / c1Base.value;
         // Convert to V1's unit
-        resultValue = convertVolFromBase(resultValue, v1Unit);
+        resultValue = convertVolumeFrom_L(resultValue, v1Unit);
         displayUnit = v1Unit;
         resultLabel = `V₁ = ${resultValue.toFixed(4)} ${displayUnit}`;
         break;
+        
       case "C2":
         // C2 = (C1 × V1) / V2
-        resultValue = (c1Base * v1Base) / v2Base;
+        resultValue = (c1Base.value * v1_L) / v2_L;
         // Convert to C2's unit
-        resultValue = convertConcFromBase(resultValue, c2Unit);
+        if (c2IsMolar) {
+          resultValue = resultValue / molarConcentrationTo_mol_per_L[c2Unit as "mol/L" | "mmol/L"];
+        } else {
+          resultValue = resultValue / massConcentrationTo_g_per_L[c2Unit as "g/L" | "mg/mL" | "µg/mL"];
+        }
         displayUnit = c2Unit;
         resultLabel = `C₂ = ${resultValue.toFixed(4)} ${displayUnit}`;
         break;
+        
       case "V2":
         // V2 = (C1 × V1) / C2
-        resultValue = (c1Base * v1Base) / c2Base;
+        resultValue = (c1Base.value * v1_L) / c2Base.value;
         // Convert to V2's unit
-        resultValue = convertVolFromBase(resultValue, v2Unit);
+        resultValue = convertVolumeFrom_L(resultValue, v2Unit);
         displayUnit = v2Unit;
         resultLabel = `V₂ = ${resultValue.toFixed(4)} ${displayUnit}`;
         break;
@@ -290,7 +350,7 @@ export default function DilutionCalculator() {
 
         {/* Final Solution (C₂, V₂) */}
         <div className="mb-6">
-          <Label className="text-primary text-xs tracking-wider mb-2 block">● FINAL SOLUTION (C₂, V₂)</Label>
+          <Label className="text-accent text-xs tracking-wider mb-2 block">● FINAL SOLUTION (C₂, V₂)</Label>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Input
@@ -299,7 +359,7 @@ export default function DilutionCalculator() {
                 value={c2}
                 onChange={(e) => setC2(e.target.value)}
                 disabled={solveFor === "C2"}
-                className="bg-background/50 border-primary/50 text-primary font-mono disabled:opacity-50"
+                className="bg-background/50 border-accent/50 text-accent font-mono disabled:opacity-50"
               />
             </div>
             <div>
@@ -308,7 +368,7 @@ export default function DilutionCalculator() {
                 onValueChange={(v) => setC2Unit(v as ConcentrationUnit)}
                 disabled={solveFor === "C2"}
               >
-                <SelectTrigger className="bg-background/50 border-primary/50 text-primary font-mono disabled:opacity-50">
+                <SelectTrigger className="bg-background/50 border-accent/50 text-accent font-mono disabled:opacity-50">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -327,7 +387,7 @@ export default function DilutionCalculator() {
                 value={v2}
                 onChange={(e) => setV2(e.target.value)}
                 disabled={solveFor === "V2"}
-                className="bg-background/50 border-primary/50 text-primary font-mono disabled:opacity-50"
+                className="bg-background/50 border-accent/50 text-accent font-mono disabled:opacity-50"
               />
             </div>
             <div>
@@ -336,7 +396,7 @@ export default function DilutionCalculator() {
                 onValueChange={(v) => setV2Unit(v as VolumeUnit)}
                 disabled={solveFor === "V2"}
               >
-                <SelectTrigger className="bg-background/50 border-primary/50 text-primary font-mono disabled:opacity-50">
+                <SelectTrigger className="bg-background/50 border-accent/50 text-accent font-mono disabled:opacity-50">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -349,15 +409,22 @@ export default function DilutionCalculator() {
           </div>
         </div>
 
+        {/* Warning Message */}
+        {warning && (
+          <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/50 rounded text-yellow-500 text-xs">
+            {warning}
+          </div>
+        )}
+
         {/* Calculate Button */}
         <Button 
           onClick={calculateSingleDilution}
-          className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-bold tracking-wider neon-glow"
+          className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-bold tracking-wider"
           style={{
             boxShadow: `
-              0 0 10px var(--color-cyan),
-              0 0 20px var(--color-cyan),
-              inset 0 0 10px var(--color-cyan)
+              0 0 10px var(--color-neon-cyan),
+              0 0 20px var(--color-neon-cyan),
+              inset 0 0 10px var(--color-neon-cyan)
             `
           }}
         >
