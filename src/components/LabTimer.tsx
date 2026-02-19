@@ -12,22 +12,21 @@ operation when screen is off or app is in background.
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Play, Pause, RotateCcw, Trash2, Plus, Volume2, VolumeX, Timer as TimerIcon, Clock, Bell, BellOff } from "lucide-react";
+import { Play, Pause, RotateCcw, Trash2, Plus, Volume2, VolumeX, Timer as TimerIcon, Clock, Bell } from "lucide-react";
 import { toast } from "sonner";
 
 interface Timer {
   id: string;
   name: string;
-  time: number; // current display time in milliseconds
+  time: number;
   isRunning: boolean;
   mode: "stopwatch" | "countdown";
-  targetDuration: number; // milliseconds, for countdown mode
-  hasCompleted: boolean; // track if countdown reached zero
-  // Timestamp-based tracking for background operation
-  startedAt: number | null; // timestamp when timer started
-  pausedAt: number | null; // timestamp when timer was paused
-  endTime: number | null; // target end time for countdown
-  accumulatedTime: number; // time accumulated before current session
+  targetDuration: number;
+  hasCompleted: boolean;
+  startedAt: number | null;
+  pausedAt: number | null;
+  endTime: number | null;
+  accumulatedTime: number;
 }
 
 export default function LabTimer() {
@@ -53,98 +52,130 @@ export default function LabTimer() {
   const animationFrameRef = useRef<number | null>(null);
   const lastVisibilityState = useRef<string>("visible");
 
+  // Initialize audio context
+  const initAudioContext = useCallback(() => {
+    if (!audioContextRef.current) {
+      try {
+        audioContextRef.current = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      } catch (e) {
+        console.warn("Audio not supported:", e);
+      }
+    }
+    return audioContextRef.current;
+  }, []);
+
   // Request notification permission
   const requestNotificationPermission = useCallback(async () => {
-    if (!("Notification" in window)) {
-      toast.error("Notifications not supported in this browser");
-      return false;
-    }
+    try {
+      if (!("Notification" in window)) {
+        toast.error("Notifications not supported in this browser");
+        return false;
+      }
 
-    if (Notification.permission === "granted") {
-      setNotificationsEnabled(true);
-      return true;
-    }
+      if (Notification.permission === "granted") {
+        setNotificationsEnabled(true);
+        toast.success("Notifications already enabled!");
+        return true;
+      }
 
-    const permission = await Notification.requestPermission();
-    if (permission === "granted") {
-      setNotificationsEnabled(true);
-      toast.success("Notifications enabled! You'll receive alerts even when screen is off.");
-      return true;
-    } else {
-      toast.error("Notification permission denied. Timer alerts will only show when app is open.");
+      const permission = await Notification.requestPermission();
+      if (permission === "granted") {
+        setNotificationsEnabled(true);
+        toast.success("Notifications enabled! You'll receive alerts even when screen is off.");
+        return true;
+      } else {
+        toast.error("Notification permission denied. Timer alerts will only show when app is open.");
+        return false;
+      }
+    } catch (e) {
+      console.error("Notification error:", e);
+      toast.error("Could not enable notifications");
       return false;
     }
   }, []);
 
-  // Initialize audio context and notifications
+  // Initialize on mount
   useEffect(() => {
-    audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    
     // Check if notifications are already enabled
-    if ("Notification" in window && Notification.permission === "granted") {
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
       setNotificationsEnabled(true);
     }
 
     return () => {
-      audioContextRef.current?.close();
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
       }
     };
   }, []);
 
   // Play alarm sound with multiple beeps
   const playAlarm = useCallback((times: number = 3) => {
-    if (isMuted || !audioContextRef.current) return;
+    if (isMuted) return;
 
-    const ctx = audioContextRef.current;
-    
-    // Resume audio context if suspended (needed for mobile)
-    if (ctx.state === 'suspended') {
-      ctx.resume();
+    try {
+      const ctx = initAudioContext();
+      if (!ctx) return;
+
+      // Resume audio context if suspended (needed for mobile/autoplay policies)
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+
+      for (let i = 0; i < times; i++) {
+        setTimeout(() => {
+          try {
+            if (!audioContextRef.current || audioContextRef.current.state === 'closed') return;
+            
+            const ctx = audioContextRef.current;
+            const oscillator = ctx.createOscillator();
+            const gainNode = ctx.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(ctx.destination);
+
+            oscillator.frequency.value = 880;
+            oscillator.type = "sine";
+
+            const now = ctx.currentTime;
+            gainNode.gain.setValueAtTime(0.3, now);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+
+            oscillator.start(now);
+            oscillator.stop(now + 0.3);
+          } catch (e) {
+            console.warn("Error playing beep:", e);
+          }
+        }, i * 350);
+      }
+    } catch (e) {
+      console.warn("Error in playAlarm:", e);
     }
-
-    for (let i = 0; i < times; i++) {
-      setTimeout(() => {
-        const oscillator = ctx.createOscillator();
-        const gainNode = ctx.createGain();
-
-        oscillator.connect(gainNode);
-        gainNode.connect(ctx.destination);
-
-        oscillator.frequency.value = 880; // Higher pitch for alarm
-        oscillator.type = "sine";
-
-        const startTime = ctx.currentTime + (i * 0.3);
-        gainNode.gain.setValueAtTime(0.4, startTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + 0.2);
-
-        oscillator.start(startTime);
-        oscillator.stop(startTime + 0.2);
-      }, i * 300);
-    }
-  }, [isMuted]);
+  }, [isMuted, initAudioContext]);
 
   // Show notification
   const showNotification = useCallback((timerName: string) => {
-    if (!notificationsEnabled || !("Notification" in window)) return;
+    try {
+      if (!notificationsEnabled || typeof window === "undefined" || !("Notification" in window)) return;
 
-    const notification = new Notification(`⏰ Timer Complete!`, {
-      body: `${timerName} has finished!`,
-      icon: "/logo.svg",
-      badge: "/logo.svg",
-      tag: `timer-${timerName}`,
-      requireInteraction: true,
-      silent: false
-    });
+      if (Notification.permission !== "granted") return;
 
-    notification.onclick = () => {
-      window.focus();
-      notification.close();
-    };
+      const notification = new Notification(`⏰ Timer Complete!`, {
+        body: `${timerName} has finished!`,
+        tag: `timer-${timerName}`,
+      });
 
-    // Auto close after 10 seconds
-    setTimeout(() => notification.close(), 10000);
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+      };
+
+      setTimeout(() => notification.close(), 10000);
+    } catch (e) {
+      console.warn("Could not show notification:", e);
+    }
   }, [notificationsEnabled]);
 
   // Calculate current time for a timer
@@ -156,13 +187,11 @@ export default function LabTimer() {
     const now = Date.now();
 
     if (timer.mode === "stopwatch") {
-      // For stopwatch: accumulated time + time since started
       if (timer.startedAt) {
         return timer.accumulatedTime + (now - timer.startedAt);
       }
       return timer.accumulatedTime;
     } else {
-      // For countdown: end time - now
       if (timer.endTime) {
         const remaining = timer.endTime - now;
         return Math.max(0, remaining);
@@ -171,39 +200,45 @@ export default function LabTimer() {
     }
   }, []);
 
-  // Main update loop using requestAnimationFrame
+  // Handle timer completion
+  const handleTimerComplete = useCallback((timer: Timer): Timer => {
+    // Play sound and show notification
+    playAlarm(5);
+    showNotification(timer.name);
+    
+    toast.success(`⏰ ${timer.name} completed!`, {
+      duration: 10000,
+    });
+
+    return { 
+      ...timer, 
+      time: 0, 
+      isRunning: false,
+      hasCompleted: true,
+      endTime: null,
+      startedAt: null
+    };
+  }, [playAlarm, showNotification]);
+
+  // Main update loop
   useEffect(() => {
     const updateTimers = () => {
       setTimers(prev => {
         let hasChanges = false;
+        const now = Date.now();
+        
         const updated = prev.map(timer => {
           if (!timer.isRunning) return timer;
 
           const currentTime = calculateCurrentTime(timer);
           
           // Check if countdown just completed
-          if (timer.mode === "countdown" && currentTime === 0 && !timer.hasCompleted && timer.endTime) {
+          if (timer.mode === "countdown" && currentTime === 0 && !timer.hasCompleted && timer.endTime && now >= timer.endTime) {
             hasChanges = true;
-            
-            // Play sound and show notification
-            playAlarm(5);
-            showNotification(timer.name);
-            
-            toast.success(`⏰ ${timer.name} completed!`, {
-              duration: 10000,
-            });
-
-            return { 
-              ...timer, 
-              time: 0, 
-              isRunning: false,
-              hasCompleted: true,
-              endTime: null,
-              startedAt: null
-            };
+            return handleTimerComplete(timer);
           }
 
-          // Only update if time changed significantly
+          // Update time if changed
           if (Math.abs(currentTime - timer.time) >= 10) {
             hasChanges = true;
             return { ...timer, time: currentTime };
@@ -225,35 +260,21 @@ export default function LabTimer() {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [calculateCurrentTime, playAlarm, showNotification]);
+  }, [calculateCurrentTime, handleTimerComplete]);
 
-  // Handle page visibility changes - recalculate all timers when page becomes visible
+  // Handle page visibility changes
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible" && lastVisibilityState.current === "hidden") {
-        // Page just became visible - recalculate all timers
         setTimers(prev => prev.map(timer => {
           if (!timer.isRunning) return timer;
 
           const currentTime = calculateCurrentTime(timer);
+          const now = Date.now();
           
           // Check if countdown completed while in background
-          if (timer.mode === "countdown" && currentTime === 0 && !timer.hasCompleted && timer.endTime) {
-            playAlarm(5);
-            showNotification(timer.name);
-            
-            toast.success(`⏰ ${timer.name} completed!`, {
-              duration: 10000,
-            });
-
-            return { 
-              ...timer, 
-              time: 0, 
-              isRunning: false,
-              hasCompleted: true,
-              endTime: null,
-              startedAt: null
-            };
+          if (timer.mode === "countdown" && currentTime === 0 && !timer.hasCompleted && timer.endTime && now >= timer.endTime) {
+            return handleTimerComplete(timer);
           }
 
           return { ...timer, time: currentTime };
@@ -264,7 +285,7 @@ export default function LabTimer() {
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [calculateCurrentTime, playAlarm, showNotification]);
+  }, [calculateCurrentTime, handleTimerComplete]);
 
   const formatTime = (ms: number) => {
     const totalSeconds = Math.floor(ms / 1000);
@@ -280,6 +301,9 @@ export default function LabTimer() {
   };
 
   const toggleTimer = (id: string) => {
+    // Initialize audio context on user interaction
+    initAudioContext();
+    
     setTimers(prev =>
       prev.map(timer => {
         if (timer.id !== id) return timer;
@@ -287,7 +311,6 @@ export default function LabTimer() {
         const now = Date.now();
 
         if (timer.isRunning) {
-          // Pausing
           const currentTime = calculateCurrentTime(timer);
           return { 
             ...timer, 
@@ -298,7 +321,6 @@ export default function LabTimer() {
             accumulatedTime: timer.mode === "stopwatch" ? currentTime : 0
           };
         } else {
-          // Starting
           if (timer.mode === "countdown" && timer.time === 0) {
             toast.error("Set a target duration first!");
             return timer;
@@ -425,35 +447,49 @@ export default function LabTimer() {
     <div className="space-y-6">
       {/* Notification Permission Banner */}
       {!notificationsEnabled && (
-        <div className="border border-yellow-500/50 bg-yellow-500/10 p-3 rounded">
-          <div className="flex items-center gap-2 text-yellow-500">
-            <Bell className="w-4 h-4" />
-            <span className="text-xs font-bold">Enable notifications to receive alerts when screen is off!</span>
-            <Button 
-              onClick={requestNotificationPermission}
-              size="sm"
-              className="ml-auto bg-yellow-500 hover:bg-yellow-600 text-black text-xs"
-            >
-              Enable
-            </Button>
-          </div>
+        <div 
+          className="p-3 rounded flex items-center gap-2"
+          style={{ 
+            backgroundColor: "rgba(234, 179, 8, 0.1)", 
+            border: "1px solid rgba(234, 179, 8, 0.5)" 
+          }}
+        >
+          <Bell className="w-4 h-4" style={{ color: "#eab308" }} />
+          <span className="text-xs font-bold" style={{ color: "#eab308" }}>
+            Enable notifications for alerts when screen is off!
+          </span>
+          <Button 
+            onClick={requestNotificationPermission}
+            size="sm"
+            className="ml-auto text-black text-xs"
+            style={{ backgroundColor: "#eab308" }}
+          >
+            Enable
+          </Button>
         </div>
       )}
 
       {/* Add New Timer */}
-      <div className="border border-accent/50 bg-accent/10 p-4 space-y-3">
+      <div 
+        className="p-4 space-y-3"
+        style={{ 
+          backgroundColor: "rgba(255, 107, 53, 0.1)", 
+          border: "1px solid rgba(255, 107, 53, 0.5)" 
+        }}
+      >
         <div className="flex items-center justify-between">
-          <p className="text-xs text-accent tracking-widest">ADD NEW TIMER</p>
+          <p className="text-xs tracking-widest" style={{ color: "#ff6b35" }}>ADD NEW TIMER</p>
           <div className="flex items-center gap-2">
             {notificationsEnabled && (
-              <span className="text-xs text-terminal-green flex items-center gap-1">
+              <span className="text-xs flex items-center gap-1" style={{ color: "#00ff41" }}>
                 <Bell className="w-3 h-3" />
                 Notifications ON
               </span>
             )}
             <button
               onClick={() => setIsMuted(!isMuted)}
-              className="text-accent hover:text-accent/80 transition-colors"
+              style={{ color: "#ff6b35" }}
+              className="hover:opacity-80 transition-opacity"
               title={isMuted ? "Unmute alerts" : "Mute alerts"}
             >
               {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
@@ -466,12 +502,21 @@ export default function LabTimer() {
             onChange={(e) => setNewTimerName(e.target.value)}
             onKeyPress={(e) => e.key === "Enter" && addTimer()}
             placeholder="Timer name..."
-            className="flex-1 bg-black border-2 border-accent/50 text-accent font-bold"
+            className="flex-1 font-bold"
+            style={{ 
+              backgroundColor: "#000", 
+              border: "2px solid rgba(255, 107, 53, 0.5)", 
+              color: "#ff6b35" 
+            }}
           />
           <Button
             onClick={addTimer}
-            className="bg-accent hover:bg-accent/80 text-accent-foreground px-6"
-            style={{ boxShadow: "0 0 10px var(--color-neon-orange)" }}
+            className="px-6"
+            style={{ 
+              backgroundColor: "#ff6b35", 
+              color: "#fff",
+              boxShadow: "0 0 10px rgba(255, 107, 53, 0.5)"
+            }}
           >
             <Plus className="w-5 h-5" />
           </Button>
@@ -482,33 +527,40 @@ export default function LabTimer() {
       <div className="space-y-4 max-h-[600px] overflow-y-auto">
         {timers.map((timer) => {
           const { minutes, seconds, milliseconds } = formatTime(timer.time);
+          const borderColor = timer.hasCompleted ? "#00ff41" : "#ff6b35";
+          const glowColor = timer.hasCompleted ? "#00ff41" : "#ff6b35";
           
           return (
             <div
               key={timer.id}
-              className={`border-2 bg-card/50 p-4 space-y-4 ${
-                timer.hasCompleted 
-                  ? "border-terminal-green animate-pulse" 
-                  : "border-accent"
-              }`}
+              className="p-4 space-y-4"
               style={{
+                backgroundColor: "rgba(18, 18, 31, 0.5)",
+                border: `2px solid ${borderColor}`,
                 boxShadow: timer.hasCompleted
-                  ? "0 0 20px var(--color-terminal-green)"
+                  ? `0 0 20px ${glowColor}`
                   : timer.isRunning
-                  ? "0 0 15px var(--color-neon-orange)"
-                  : "0 0 5px var(--color-neon-orange)"
+                  ? `0 0 15px ${glowColor}`
+                  : `0 0 5px ${glowColor}`
               }}
             >
               {/* Timer Name and Mode Toggle */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <h3 className="text-lg font-bold text-accent tracking-wider uppercase">
+                  <h3 
+                    className="text-lg font-bold tracking-wider uppercase"
+                    style={{ color: "#ff6b35" }}
+                  >
                     {timer.name}
                   </h3>
                   <button
                     onClick={() => toggleMode(timer.id)}
-                    className="flex items-center gap-1 px-2 py-1 bg-secondary/50 border border-primary/30 hover:border-primary text-primary text-xs font-bold transition-all"
-                    title={`Switch to ${timer.mode === "stopwatch" ? "countdown" : "stopwatch"} mode`}
+                    className="flex items-center gap-1 px-2 py-1 text-xs font-bold transition-all"
+                    style={{ 
+                      backgroundColor: "rgba(26, 26, 46, 0.5)", 
+                      border: "1px solid rgba(0, 255, 255, 0.3)",
+                      color: "#00ffff"
+                    }}
                   >
                     {timer.mode === "stopwatch" ? (
                       <>
@@ -526,7 +578,8 @@ export default function LabTimer() {
                 {timers.length > 1 && (
                   <button
                     onClick={() => deleteTimer(timer.id)}
-                    className="text-destructive hover:text-destructive/80 transition-colors"
+                    className="transition-opacity hover:opacity-70"
+                    style={{ color: "#ff4757" }}
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -536,14 +589,24 @@ export default function LabTimer() {
               {/* Countdown Target Duration Input */}
               {timer.mode === "countdown" && (
                 <div className="flex items-center gap-2">
-                  <label className="text-xs text-muted-foreground tracking-widest">TARGET (MIN):</label>
+                  <label 
+                    className="text-xs tracking-widest"
+                    style={{ color: "#6b8a8a" }}
+                  >
+                    TARGET (MIN):
+                  </label>
                   <Input
                     type="number"
                     min="0"
                     step="0.5"
                     value={timer.targetDuration / 60000}
                     onChange={(e) => setTargetDuration(timer.id, parseFloat(e.target.value) || 0)}
-                    className="w-24 bg-black border-2 border-primary/50 text-primary font-bold text-center"
+                    className="w-24 font-bold text-center"
+                    style={{ 
+                      backgroundColor: "#000", 
+                      border: "2px solid rgba(0, 255, 255, 0.5)", 
+                      color: "#00ffff" 
+                    }}
                   />
                 </div>
               )}
@@ -551,56 +614,35 @@ export default function LabTimer() {
               {/* Timer Display */}
               <div className="flex justify-center">
                 <div 
-                  className={`w-48 h-48 rounded-full border-4 bg-black flex flex-col items-center justify-center relative scanlines ${
-                    timer.hasCompleted ? "border-terminal-green" : "border-accent"
-                  }`}
+                  className="w-48 h-48 rounded-full flex flex-col items-center justify-center relative scanlines"
                   style={{
+                    backgroundColor: "#000",
+                    border: `4px solid ${borderColor}`,
                     boxShadow: timer.hasCompleted
-                      ? `
-                        0 0 30px var(--color-terminal-green),
-                        0 0 60px var(--color-terminal-green),
-                        inset 0 0 20px rgba(0, 0, 0, 0.8)
-                      `
+                      ? `0 0 30px ${glowColor}, 0 0 60px ${glowColor}, inset 0 0 20px rgba(0, 0, 0, 0.8)`
                       : timer.isRunning
-                      ? `
-                        0 0 30px var(--color-neon-orange),
-                        0 0 60px var(--color-neon-orange),
-                        inset 0 0 20px rgba(0, 0, 0, 0.8)
-                      `
-                      : `
-                        0 0 15px var(--color-neon-orange),
-                        inset 0 0 20px rgba(0, 0, 0, 0.8)
-                      `
+                      ? `0 0 30px ${glowColor}, 0 0 60px ${glowColor}, inset 0 0 20px rgba(0, 0, 0, 0.8)`
+                      : `0 0 15px ${glowColor}, inset 0 0 20px rgba(0, 0, 0, 0.8)`
                   }}
                 >
                   <p 
-                    className={`text-5xl font-bold mono-display ${
-                      timer.hasCompleted ? "text-terminal-green" : "text-accent"
-                    }`}
-                    style={{
+                    className="text-5xl font-bold"
+                    style={{ 
                       fontFamily: "'Orbitron', sans-serif",
+                      color: timer.hasCompleted ? "#00ff41" : "#ff6b35",
                       textShadow: timer.hasCompleted
-                        ? `
-                          0 0 10px var(--color-terminal-green),
-                          0 0 20px var(--color-terminal-green),
-                          0 0 30px var(--color-terminal-green)
-                        `
-                        : `
-                          0 0 10px var(--color-neon-orange),
-                          0 0 20px var(--color-neon-orange),
-                          0 0 30px var(--color-neon-orange)
-                        `
+                        ? "0 0 10px #00ff41, 0 0 20px #00ff41, 0 0 30px #00ff41"
+                        : "0 0 10px #ff6b35, 0 0 20px #ff6b35, 0 0 30px #ff6b35"
                     }}
                   >
                     {minutes}:{seconds}
                   </p>
                   <p 
-                    className="text-xl font-bold mono-display text-primary mt-1"
-                    style={{
-                      textShadow: `
-                        0 0 5px var(--color-neon-cyan),
-                        0 0 10px var(--color-neon-cyan)
-                      `
+                    className="text-xl font-bold mt-1"
+                    style={{ 
+                      fontFamily: "'Share Tech Mono', monospace",
+                      color: "#00ffff",
+                      textShadow: "0 0 5px #00ffff, 0 0 10px #00ffff"
                     }}
                   >
                     .{milliseconds}
@@ -608,9 +650,11 @@ export default function LabTimer() {
                   
                   {timer.isRunning && (
                     <div className="absolute top-2 right-2">
-                      <div className="w-3 h-3 rounded-full bg-terminal-green animate-pulse"
-                        style={{
-                          boxShadow: "0 0 10px var(--color-terminal-green)"
+                      <div 
+                        className="w-3 h-3 rounded-full animate-pulse"
+                        style={{ 
+                          backgroundColor: "#00ff41",
+                          boxShadow: "0 0 10px #00ff41"
                         }}
                       />
                     </div>
@@ -618,7 +662,10 @@ export default function LabTimer() {
 
                   {timer.hasCompleted && (
                     <div className="absolute inset-0 flex items-center justify-center">
-                      <p className="text-xs text-terminal-green font-bold tracking-widest animate-pulse">
+                      <p 
+                        className="text-xs font-bold tracking-widest animate-pulse"
+                        style={{ color: "#00ff41" }}
+                      >
                         COMPLETE
                       </p>
                     </div>
@@ -630,9 +677,11 @@ export default function LabTimer() {
               <div className="grid grid-cols-3 gap-2">
                 <Button
                   onClick={() => toggleTimer(timer.id)}
-                  className="bg-accent hover:bg-accent/80 text-accent-foreground font-bold py-4 flex flex-col gap-1"
-                  style={{
-                    boxShadow: timer.isRunning ? "0 0 15px var(--color-neon-orange)" : "0 0 5px var(--color-neon-orange)"
+                  className="font-bold py-4 flex flex-col gap-1"
+                  style={{ 
+                    backgroundColor: "#ff6b35",
+                    color: "#fff",
+                    boxShadow: timer.isRunning ? "0 0 15px rgba(255, 107, 53, 0.5)" : "0 0 5px rgba(255, 107, 53, 0.5)"
                   }}
                 >
                   {timer.isRunning ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
@@ -641,7 +690,12 @@ export default function LabTimer() {
                 
                 <Button
                   onClick={() => resetTimer(timer.id)}
-                  className="bg-secondary hover:bg-secondary/80 text-primary border-2 border-primary/50 font-bold py-4 flex flex-col gap-1"
+                  className="font-bold py-4 flex flex-col gap-1"
+                  style={{ 
+                    backgroundColor: "rgba(26, 26, 46, 0.8)",
+                    border: "2px solid rgba(0, 255, 255, 0.5)",
+                    color: "#00ffff"
+                  }}
                 >
                   <RotateCcw className="w-5 h-5" />
                   <span className="text-xs tracking-wider">RESET</span>
@@ -660,7 +714,12 @@ export default function LabTimer() {
                       accumulatedTime: 0
                     } : t)
                   )}
-                  className="bg-secondary hover:bg-secondary/80 text-primary border-2 border-primary/50 font-bold py-4 flex flex-col gap-1"
+                  className="font-bold py-4 flex flex-col gap-1"
+                  style={{ 
+                    backgroundColor: "rgba(26, 26, 46, 0.8)",
+                    border: "2px solid rgba(0, 255, 255, 0.5)",
+                    color: "#00ffff"
+                  }}
                 >
                   <span className="text-2xl">00</span>
                   <span className="text-xs tracking-wider">ZERO</span>
@@ -669,7 +728,7 @@ export default function LabTimer() {
 
               {/* Preset Buttons */}
               <div className="space-y-2">
-                <p className="text-xs text-muted-foreground tracking-widest">QUICK PRESETS</p>
+                <p className="text-xs tracking-widest" style={{ color: "#6b8a8a" }}>QUICK PRESETS</p>
                 <div className="grid grid-cols-5 gap-2">
                   {[
                     { label: "30s", ms: 30000 },
@@ -681,7 +740,12 @@ export default function LabTimer() {
                     <button
                       key={preset.label}
                       onClick={() => setPreset(timer.id, preset.ms)}
-                      className="py-2 px-2 bg-secondary/50 border border-primary/30 hover:border-primary hover:bg-accent/20 text-primary font-bold text-xs transition-all"
+                      className="py-2 px-2 font-bold text-xs transition-all hover:opacity-80"
+                      style={{ 
+                        backgroundColor: "rgba(26, 26, 46, 0.5)",
+                        border: "1px solid rgba(0, 255, 255, 0.3)",
+                        color: "#00ffff"
+                      }}
                     >
                       {preset.label}
                     </button>
@@ -693,29 +757,14 @@ export default function LabTimer() {
         })}
       </div>
 
-      {/* Summary */}
-      {timers.length > 1 && (
-        <div className="border border-primary/30 bg-card/50 p-3">
-          <p className="text-xs text-muted-foreground tracking-widest mb-2">ACTIVE TIMERS</p>
-          <div className="flex items-center gap-2">
-            <span className="text-primary font-bold mono-display">{timers.length}</span>
-            <span className="text-xs text-muted-foreground">TOTAL</span>
-            <span className="mx-2">|</span>
-            <span className="text-terminal-green font-bold mono-display">
-              {timers.filter(t => t.isRunning).length}
-            </span>
-            <span className="text-xs text-muted-foreground">RUNNING</span>
-            <span className="mx-2">|</span>
-            <span className="text-accent font-bold mono-display">
-              {timers.filter(t => t.hasCompleted).length}
-            </span>
-            <span className="text-xs text-muted-foreground">COMPLETED</span>
-          </div>
-        </div>
-      )}
-
       {/* Info */}
-      <div className="text-xs text-muted-foreground text-center p-2 border border-primary/20 rounded">
+      <div 
+        className="text-xs text-center p-2 rounded"
+        style={{ 
+          color: "#6b8a8a",
+          border: "1px solid rgba(0, 255, 255, 0.2)"
+        }}
+      >
         <p>💡 Timer uses timestamps to work accurately even when screen is off</p>
         <p>🔔 Enable notifications for alerts when the app is in background</p>
       </div>
